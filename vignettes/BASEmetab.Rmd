@@ -1,11 +1,12 @@
 ---
-title: "User guide for package 'BASEmetab'"
+title: "User guide for package 'BASEmetab_mod'"
 author: "Darren Giling, Ralph Mac Nally, Nick Bond & Michael Grace"
+modified by: Sonny Martin
 date: "`r Sys.Date()`"
 output: 
   rmarkdown::pdf_document
 vignette: >
-  %\VignetteIndexEntry{"User guide for package 'BASEmetab'""}
+  %\VignetteIndexEntry{"User guide for package 'BASEmetab_mod'""}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -37,7 +38,7 @@ knitr::opts_chunk$set(
 BASEmetab is a package for the batch analysis of single-station diel dissolved oxygen data to simultaneously estimate primary production, respiration and reaeration rates of streams and rivers. The analysis is run in a Bayesian framework, allowing for prior information to be considered during the estimation of model parameters. The package also contains other useful functions for preparing and processing time-series data from streams and rivers.
 
 ##Details
-The main function of the BASEmetab package is `bayesmetab`. This function implements the daytime regression model of Grace et al. (2015) for dissolved oxygen (DO) time series. See Grace et al. (2015) for a background to the subject and a full description of the model, but note the subsequent revisions to the model that are detailed below in 'Updates'. Grace and Imberger (2006) provide a guide to the practical aspects of measuring diel dissolved oxygen and PAR data in streams and rivers, including recommendations on probe drift that must be corrected prior to estimating metabolic rates.
+The main function of the BASEmetab package is `bayesmetab_mod`. This function implements the daytime regression model of Grace et al. (2015) for dissolved oxygen (DO) time series. See Grace et al. (2015) for a background to the subject and a full description of the model, but note the subsequent revisions to the model that are detailed below in 'Updates'. Grace and Imberger (2006) provide a guide to the practical aspects of measuring diel dissolved oxygen and PAR data in streams and rivers, including recommendations on probe drift that must be corrected prior to estimating metabolic rates.
 
 The parameter estimation is performed with the JAGS software, which must be separately installed (Plummer 2003; http://mcmc-jags.sourceforge.net/). The model does not require experience with JAGS, but familiarity with metrics of MCMC chain convergence is recommended (see e.g. McCarthy 2007).
 
@@ -50,7 +51,7 @@ To install run the following code
   install.packages("devtools")
 
 # install BASEmetab package
-  devtools::install_github("dgiling/BASEmetab")
+  devtools::install_github("sjmartin1313/DO-process-based-prediction")
 
   # Remove the package zip after installation
   unlink("BASEmetab.zip")
@@ -128,14 +129,14 @@ Van de Bogert, M. C., S. R. Carpenter, J. J. Cole, and M. L. Pace. 2007. Assessi
 
 \newpage
 
-#bayesmetab (function)
+#bayesmetab_mod (function)
 
 ##Description
-bayesmetab is the main function of the BASEmetab package. This function calls JAGS to perform the single-station stream metabolism analysis. 
+bayesmetab_mod is the main function of the BASEmetab package. This function calls JAGS to perform the single-station stream metabolism analysis. 
 
 ##Useage
 
-`bayesmetab(data.dir , results.dir, interval, n.iter=20000, n.burnin=n.iter*0.5, 
+`bayesmetab_mod(data.dir , results.dir, interval, n.iter=20000, n.burnin=n.iter*0.5, 
 update.chains = TRUE, extra.iter=1, smooth.DO=0, smooth.PAR=FALSE,
 K.init = 2, K.est = TRUE, K.meas.mean = 0, K.meas.sd = 4, 
 p.est=FALSE, theta.est=FALSE, instant=TRUE)`
@@ -300,7 +301,7 @@ if (dir.exists(results.dir)){} else {
 dir.create(results.dir)}
 
 #run model
-results <- bayesmetab(data.dir, results.dir, interval=600)
+results <- bayesmetab_mod(data.dir, results.dir, interval=600)
 ```
 
 ##References
