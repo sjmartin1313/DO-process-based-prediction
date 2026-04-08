@@ -4,7 +4,7 @@
 \alias{bayesmetab}
 \title{bayesmetab}
 \usage{
-bayesmetab(data.dir, results.dir, interval, n.iter = 20000,
+bayesmetab_mod(data.dir, results.dir, interval, n.iter = 20000,
   n.burnin = n.iter * 0.5, K.init = 2, smooth.DO = 0,
   smooth.PAR = FALSE, instant = FALSE, update.chains = TRUE,
   extra.iter = 1, K.est = TRUE, K.meas.mean = 0, K.meas.sd = 4,
@@ -69,7 +69,7 @@ if (dir.exists(results.dir)){} else {
 dir.create(results.dir)}
 
 #run model.
-results <- bayesmetab(data.dir, results.dir, interval=600)
+results <- bayesmetab_mod(data.dir, results.dir, interval=600)
 
 }
 \references{
