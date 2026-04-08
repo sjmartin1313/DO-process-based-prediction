@@ -1,4 +1,8 @@
-#' bayesmetab
+#' bayesmetab_mod (modified version of original bayesmetab function in package BASEmetab)
+#' This script is adapted from:
+#' https://github.com/dgiling/BASEmetab
+#'
+#' Original license: Creative Commons Attribution 3.0 (CC BY 3.0)
 #'
 #' Estimates single-station whole-stream metabolic rates from diel dissolved oxygen (DO) curves (see Grace et al. 2015).
 #'
@@ -21,9 +25,23 @@
 #'
 #' @return A dataframe and csv file of parameter estimates (mean, SD) and checks of model fit, plots of model fit (see Vignette for details https://github.com/dgiling/BASEmetab/blob/master/vignettes/BASEmetab.pdf).
 #'
-#'@references Grace et al. (2015) Fast processing of diel oxygen curves: estimating stream metabolism with BASE (BAyesian Single-station Estimation). Limnology and Oceanography: Methods, 13, 103-114.
+#' @references Grace et al. (2015) Fast processing of diel oxygen curves: estimating stream metabolism with BASE (BAyesian Single-station Estimation). Limnology and Oceanography: Methods, 13, 103-114.
 #'
 #' @author Darren Giling, Ralph Mac Nally
+#' @modifications by Sonny Martin for the use in "Short-Term Dissolved Oxygen Forecasting in Aquaculture Systems Using a Process-Based Mass-Balance Model"
+#' Modifications made:
+#' Added R.mean, R.sd, R.median in the output table.
+#' Added DO.meas to the list of monitored parameters in the JAGS model.
+#' Wrapped results generation in a tryCatch to avoid failure of the whole function when model outputs are invalid or incomplete.
+#' Added fallback logic to create empty result rows when model outputs are invalid or incomplete.
+#' Implemented helper functions for safe extraction of model outputs and Rhat values.
+#' Added checks for valid model output structure before attempting to extract results.
+#' Ensured that all required columns are present in the results data frame, adding NA for any missing columns.
+#' Replaced direct indexing of model outputs with controlled validation to prevent dimension mismatches.
+#' If a result is invalid, a warning is issued and an empty row with the correct structure is added to the output table instead of the function failing.
+#' Replaced original code for calculating R2, RMSE, and other metrics with tryCatch blocks.
+#' Replaced original instantaneous output logic with mean-based aggregation.
+#'
 #' @examples
 #'
 #' ##Link to JAGS
@@ -44,12 +62,12 @@
 #' dir.create(results.dir)}
 #'
 #' #run model.
-#' results <- bayesmetab(data.dir, results.dir, interval=600)
+#' results <- bayesmetab_mod(data.dir, results.dir, interval=600)
 #'
 #' @export
 #' @import R2jags
 
-bayesmetab <- function(data.dir, results.dir, interval, n.iter=20000, n.burnin=n.iter*0.5, K.init = 2, 
+bayesmetab_mod <- function(data.dir, results.dir, interval, n.iter=20000, n.burnin=n.iter*0.5, K.init = 2, 
                       smooth.DO=0, smooth.PAR=FALSE, instant=FALSE, update.chains = TRUE, extra.iter=1,
                       K.est = TRUE, K.meas.mean = 0, K.meas.sd = 4, p.est=FALSE, theta.est=FALSE) 
   {
@@ -75,6 +93,7 @@ bayesmetab <- function(data.dir, results.dir, interval, n.iter=20000, n.burnin=n
                            theta.mean=double(), theta.sd=double(), theta.median=double(),
                            A.mean=double(), A.sd=double(), A.median=double(), 
                            p.mean=double(), p.sd=double(), p.median=double(),
+                           R.mean=double(), R.sd=double(), R.median=double(),
                            R2=double(), PPP=double(), rmse=double(), rmse.relative=double(), mrl.fraction=double(), ER.K.cor=double(), 
                            convergence.check=double(), A.Rhat=double(), K.Rhat=double(), theta.Rhat=double(), p.Rhat=double(), R.Rhat=double(), GPP.Rhat=double(), 
                            DIC=double(), pD=double(),
@@ -146,7 +165,7 @@ bayesmetab <- function(data.dir, results.dir, interval, n.iter=20000, n.burnin=n
       # Initial values
       # Set these to something sensible if the model is becoming stuck in a bad parameter space
       # These values here are expressed per timestep, not per day. Divide desired initial K (/day) by the number of timesteps in a day, as shown in default below 
-      inits <- function()	{	list(K = K.init / (86400/interval) ) }
+      inits <- function()       {       list(K = K.init / (86400/interval) ) }
       
       # Different random seeds
       kern=as.integer(runif(1000,min=1,max=10000))
@@ -162,11 +181,11 @@ bayesmetab <- function(data.dir, results.dir, interval, n.iter=20000, n.burnin=n
       K.meas.sd.ts <- K.meas.sd / (86400/interval)
       data.list <- list("num.measurements","interval","tempC","DO.meas","PAR","salinity","atmo.pressure", "K.init", 
                         "K.est.n", "K.meas.mean.ts", "K.meas.sd.ts", "p.est.n", "theta.est.n")  
-      
+
       # Define monitoring variables
       params=c("A","R","K","K.day","p","theta","tau","ER","GPP","NEP","PR","sum.obs.resid","sum.ppa.resid","PPfit","DO.modelled",
-               "gppts", "erpts", "kpts")
-      
+               "gppts", "erpts", "kpts", "DO.meas")
+
       ## Call jags ##
       
       # Set debug = T below to inspect each file for model convergence 
@@ -226,34 +245,158 @@ bayesmetab <- function(data.dir, results.dir, interval, n.iter=20000, n.burnin=n
       
       ER.K.cor <- cor(metabfit$BUGSoutput$sims.list$ER,metabfit$BUGSoutput$sims.list$K) # plot(metabfit$sims.list$ER ~ metabfit$sims.list$K)
       
-      # insert results to table and write table
-      result <- data.frame(File=as.character(fname), Date=as.character(d), 
-                           metabfit$BUGSoutput$mean$GPP, metabfit$BUGSoutput$sd$GPP, metabfit$BUGSoutput$median$GPP,
-                           metabfit$BUGSoutput$mean$ER, metabfit$BUGSoutput$sd$ER, metabfit$BUGSoutput$median$ER,
-                           metabfit$BUGSoutput$mean$NEP, metabfit$BUGSoutput$sd$NEP, metabfit$BUGSoutput$median$NEP, 
-                           metabfit$BUGSoutput$mean$PR, metabfit$BUGSoutput$sd$PR, metabfit$BUGSoutput$median$PR,
-                           metabfit$BUGSoutput$mean$K.day, metabfit$BUGSoutput$sd$K.day, metabfit$BUGSoutput$median$K.day,  
-                           metabfit$BUGSoutput$mean$theta, metabfit$BUGSoutput$sd$theta, metabfit$BUGSoutput$median$theta, 
-                           metabfit$BUGSoutput$mean$A, metabfit$BUGSoutput$sd$A, metabfit$BUGSoutput$median$A,
-                           metabfit$BUGSoutput$mean$p, metabfit$BUGSoutput$sd$p, metabfit$BUGSoutput$median$p,
-                           R2, PPP, rmse, rmse.relative, mrl.fraction, ER.K.cor, 
-                           Rhat.test, metabfit$BUGSoutput$summary["A",8] , metabfit$BUGSoutput$summary["K",8], metabfit$BUGSoutput$summary["theta",8], 
-                           metabfit$BUGSoutput$summary["p",8], metabfit$BUGSoutput$summary["R",8], metabfit$BUGSoutput$summary["GPP",8],  
-                           DIC, pD,
-                           totDailyLight=sum(PAR), aveDailyTemp=mean(tempC),
-                           interval= interval, smooth.DO=smooth.DO , smooth.PAR=smooth.PAR, n.iter= n.iter, n.burnin= n.burnin,
-                           stringsAsFactors = FALSE)
-      output.table[nrow(output.table)+1,] <- result
-      
-      # insert results to instantaneous table and write
+      # Safely create results row
+      result <- tryCatch({
+        # First verify we have valid BUGS output
+        if(is.null(metabfit) || is.null(metabfit$BUGSoutput) || is.null(metabfit$BUGSoutput$mean)) {
+            stop("Invalid model output structure")
+        }
+
+        # Create safe extraction functions
+        safe_extract <- function(obj, param, type = "mean") {
+            tryCatch({
+            if(param %in% names(obj$BUGSoutput[[type]])) {
+                val <- obj$BUGSoutput[[type]][[param]]
+                if(length(val) > 0) val else NA_real_
+            } else {
+                NA_real_
+            }
+            }, error = function(e) NA_real_)
+        }
+        
+        safe_rhat <- function(obj, param) {
+            tryCatch({
+            if(param %in% rownames(obj$BUGSoutput$summary)) {
+                obj$BUGSoutput$summary[param, "Rhat"]
+            } else {
+                NA_real_
+            }
+            }, error = function(e) NA_real_)
+        }
+        
+        # Calculate model fit metrics
+        DO.mod.means <- safe_extract(metabfit, "DO.modelled")
+        R2_val <- tryCatch(cor(DO.mod.means, DO.meas)^2, error = function(e) NA_real_)
+        rmse_val <- tryCatch(sqrt(mean((DO.mod.means - DO.meas)^2)), error = function(e) NA_real_)
+        
+        # Calculate additional metrics
+        ptpvar <- tryCatch({
+            DO.lag <- DO.meas[2:length(DO.meas)] - DO.meas[1:(length(DO.meas)-1)]
+            sqrt(sum((DO.lag)^2)/(length(DO.meas)-1))
+        }, error = function(e) NA_real_)
+        
+        rmse.relative <- if(!is.na(rmse_val) && !is.na(ptpvar)) rmse_val/ptpvar else NA_real_
+        
+        mrl.fraction <- tryCatch({
+            diff <- DO.mod.means - DO.meas
+            max(rle(sign(as.vector(diff)))$lengths)/length(DO.meas)
+        }, error = function(e) NA_real_)
+        
+        ER.K.cor <- tryCatch({
+            cor(metabfit$BUGSoutput$sims.list$ER, metabfit$BUGSoutput$sims.list$K)
+        }, error = function(e) NA_real_)
+        
+        # Create the results data frame
+        res <- data.frame(
+            File = as.character(fname),
+            Date = as.character(d),
+            GPP.mean = safe_extract(metabfit, "GPP"),
+            GPP.sd = safe_extract(metabfit, "GPP", "sd"),
+            GPP.median = safe_extract(metabfit, "GPP", "median"),
+            ER.mean = safe_extract(metabfit, "ER"),
+            ER.sd = safe_extract(metabfit, "ER", "sd"),
+            ER.median = safe_extract(metabfit, "ER", "median"),
+            NEP.mean = safe_extract(metabfit, "NEP"),
+            NEP.sd = safe_extract(metabfit, "NEP", "sd"),
+            NEP.median = safe_extract(metabfit, "NEP", "median"),
+            PR.mean = safe_extract(metabfit, "PR"),
+            PR.sd = safe_extract(metabfit, "PR", "sd"),
+            PR.median = safe_extract(metabfit, "PR", "median"),
+            K.mean = safe_extract(metabfit, "K.day"),
+            K.sd = safe_extract(metabfit, "K.day", "sd"),
+            K.median = safe_extract(metabfit, "K.day", "median"),
+            theta.mean = safe_extract(metabfit, "theta"),
+            theta.sd = safe_extract(metabfit, "theta", "sd"),
+            theta.median = safe_extract(metabfit, "theta", "median"),
+            A.mean = safe_extract(metabfit, "A"),
+            A.sd = safe_extract(metabfit, "A", "sd"),
+            A.median = safe_extract(metabfit, "A", "median"),
+            p.mean = safe_extract(metabfit, "p"),
+            p.sd = safe_extract(metabfit, "p", "sd"),
+            p.median = safe_extract(metabfit, "p", "median"),
+            R.mean = safe_extract(metabfit, "R"),
+            R.sd = safe_extract(metabfit, "R", "sd"),
+            R.median = safe_extract(metabfit, "R", "median"),
+            R2 = R2_val,
+            PPP = safe_extract(metabfit, "PPfit"),
+            rmse = rmse_val,
+            rmse.relative = rmse.relative,
+            mrl.fraction = mrl.fraction,
+            ER.K.cor = ER.K.cor,
+            convergence.check = as.numeric(Rhat.test == "Check convergence"),
+            A.Rhat = safe_rhat(metabfit, "A"),
+            K.Rhat = safe_rhat(metabfit, "K.day"),
+            theta.Rhat = safe_rhat(metabfit, "theta"),
+            p.Rhat = safe_rhat(metabfit, "p"),
+            R.Rhat = safe_rhat(metabfit, "R"),
+            GPP.Rhat = safe_rhat(metabfit, "GPP"),
+            DIC = if(!is.null(metabfit$BUGSoutput$DIC)) metabfit$BUGSoutput$DIC else NA_real_,
+            pD = if(!is.null(metabfit$BUGSoutput$pD)) metabfit$BUGSoutput$pD else NA_real_,
+            totDailyLight = sum(PAR, na.rm = TRUE),
+            aveDailyTemp = mean(tempC, na.rm = TRUE),
+            interval = interval,
+            smooth.DO = smooth.DO,
+            smooth.PAR = smooth.PAR,
+            n.iter = n.iter,
+            n.burnin = n.burnin,
+            stringsAsFactors = FALSE
+        )
+        
+        # Verify all required columns are present
+        required_cols <- names(output.table)
+        missing_cols <- setdiff(required_cols, names(res))
+        if(length(missing_cols) > 0) {
+            res[missing_cols] <- NA_real_
+        }
+        
+        res
+      }, error = function(e) {
+        warning("Error creating results for date ", d, ": ", e$message)
+        # Create minimal result row
+        empty_row <- output.table[1, , drop = FALSE]
+        empty_row[1, ] <- NA
+        empty_row$File <- fname
+        empty_row$Date <- d
+        empty_row
+      })
+
+      # Add to output table
+      if(!is.null(result) && nrow(result) == 1 && ncol(result) == ncol(output.table)) {
+        output.table <- rbind(output.table, result)
+      } else {
+        warning("Invalid result for date ", d)
+        # Create empty row with correct structure
+        empty_row <- output.table[1, , drop = FALSE]
+        empty_row[1, ] <- NA
+        empty_row$File <- fname
+        empty_row$Date <- d
+        output.table <- rbind(output.table, empty_row)
+      }
+
       if(instant == TRUE) {
-        instant.result <- data.frame(File=as.character(rep(fname,seconds/interval)), Date=as.character(rep(d,seconds/interval)),interval=1:(seconds/interval),
-                                     tempC=tempC, I=PAR, 
-                                     K.instant=as.vector(metabfit$BUGSoutput$mean$kpts),
-                                     GPP.instant=as.vector(metabfit$BUGSoutput$mean$gppts),
-                                     ER.instant=as.vector(metabfit$BUGSoutput$mean$erpts),
-                                     stringsAsFactors = FALSE)
-        instant.rates[(nrow(instant.rates)+1):(nrow(instant.rates)+(seconds/interval)),] <- instant.result
+        param_means <- data.frame(
+          File = as.character(rep(fname, seconds/interval)),
+          Date = as.character(rep(d, seconds/interval)),
+          time = 1:num.measurements,
+          K = colMeans(metabfit$BUGSoutput$sims.list$K_instant),
+          GPP = colMeans(metabfit$BUGSoutput$sims.list$gppts),
+          ER = colMeans(metabfit$BUGSoutput$sims.list$erpts),
+          KP = colMeans(metabfit$BUGSoutput$sims.list$kpts),
+          DO.modelled = colMeans(metabfit$BUGSoutput$sims.list$DO.modelled),
+          DO.meas = colMeans(metabfit$BUGSoutput$sims.list$DO.meas)
+        )
+
+        write.csv(param_means, file = file.path(results.dir, paste0("inst_rates_", d, ".csv")), row.names = FALSE)
       }
       
       # diagnostic traceplots and scatterplots
@@ -298,5 +441,3 @@ bayesmetab <- function(data.dir, results.dir, interval, n.iter=20000, n.burnin=n
   return(output.table)
   
 }
-
-
